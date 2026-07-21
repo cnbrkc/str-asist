@@ -5,8 +5,9 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 # ── Ayarlar ───────────────────────────────────────────────────────────────────
-CANVAS_WIDTH = 1080
-CANVAS_HEIGHT = 1920
+# 4K Dikey Çözünürlük (2160x3840)
+CANVAS_WIDTH = 2160
+CANVAS_HEIGHT = 3840
 BG_COLOR_RGBA = (18, 25, 36, 255)
 TEXT_COLOR = (255, 255, 255)
 
@@ -46,18 +47,18 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         dummy_img = Image.new("RGB", (1, 1))
         dummy_draw = ImageDraw.Draw(dummy_img)
 
-        # SENİN AYARLADIĞIN PUNTOLAR BURADA (55 ve 35)
-        font_title = _get_font(55, bold=True)
-        title_lines = _wrap_text(dummy_draw, title, font_title, CANVAS_WIDTH - 160)
-        title_h = sum([(dummy_draw.textbbox((0,0), line, font=font_title)[3]) for line in title_lines]) + (len(title_lines)-1)*15
+        # 4K için font boyutlarını ölçekle (2x)
+        font_title = _get_font(110, bold=True)
+        title_lines = _wrap_text(dummy_draw, title, font_title, CANVAS_WIDTH - 320)
+        title_h = sum([(dummy_draw.textbbox((0,0), line, font=font_title)[3]) for line in title_lines]) + (len(title_lines)-1)*30
 
-        font_body = _get_font(35, bold=False)
-        body_lines = _wrap_text(dummy_draw, body, font_body, CANVAS_WIDTH - 160)
-        body_h = sum([(dummy_draw.textbbox((0,0), line, font=font_body)[3]) for line in body_lines]) + (len(body_lines)-1)*12
+        font_body = _get_font(70, bold=False)
+        body_lines = _wrap_text(dummy_draw, body, font_body, CANVAS_WIDTH - 320)
+        body_h = sum([(dummy_draw.textbbox((0,0), line, font=font_body)[3]) for line in body_lines]) + (len(body_lines)-1)*24
 
-        logo_h = 120
-        img_h = 700
-        gap = 40
+        logo_h = 240
+        img_h = 1400
+        gap = 80
 
         total_h = logo_h + gap + title_h + gap + img_h + gap + body_h
         y_cursor = (CANVAS_HEIGHT - total_h) // 2
@@ -77,7 +78,7 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
                 b_h = int(b_w / img_ratio)
                 
             blur_img = img.resize((b_w, b_h), Image.LANCZOS)
-            blur_img = blur_img.filter(ImageFilter.GaussianBlur(70))
+            blur_img = blur_img.filter(ImageFilter.GaussianBlur(140))
             
             left = (b_w - CANVAS_WIDTH) // 2
             top = (b_h - CANVAS_HEIGHT) // 2
@@ -86,7 +87,7 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
 
         overlay = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), (0,0,0,0))
         draw_overlay = ImageDraw.Draw(overlay)
-        fade_dist = 600
+        fade_dist = 1200
         
         for y in range(CANVAS_HEIGHT):
             if y < fade_dist:
@@ -113,18 +114,18 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             line_w = bbox[2] - bbox[0]
             x = (CANVAS_WIDTH - line_w) // 2
             draw.text((x, y_cursor), line, font=font_title, fill=TEXT_COLOR)
-            y_cursor += bbox[3] + 15
-        y_cursor += gap - 15
+            y_cursor += bbox[3] + 30
+        y_cursor += gap - 30
 
         img_y = y_cursor
         if image_path and os.path.exists(image_path):
             img = Image.open(image_path).convert("RGB")
             img_ratio = img.width / img.height
-            target_ratio = 1000 / img_h
+            target_ratio = 2000 / img_h
             
             if img_ratio > target_ratio: 
-                n_w = 1000
-                n_h = int(1000 / img_ratio)
+                n_w = 2000
+                n_h = int(2000 / img_ratio)
             else: 
                 n_h = img_h
                 n_w = int(img_h * img_ratio)
@@ -139,9 +140,10 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             line_w = bbox[2] - bbox[0]
             x = (CANVAS_WIDTH - line_w) // 2
             draw.text((x, y_cursor), line, font=font_body, fill=TEXT_COLOR)
-            y_cursor += bbox[3] + 12
+            y_cursor += bbox[3] + 24
 
-        canvas.convert("RGB").save(output_path, format="JPEG", quality=95)
+        # PNG formatında ve maksimum kalitede kaydet (4K için şeffaflık desteği)
+        canvas.save(output_path, format="PNG", quality=100)
         return output_path
 
     except Exception as e:
@@ -168,8 +170,8 @@ if st.button("🎨 Şablonu Oluştur", type="primary", use_container_width=True)
         with st.spinner("Muhteşem şablon hazırlanıyor..."):
             # Geçici dosyalar
             temp_dir = tempfile.mkdtemp()
-            input_path = os.path.join(temp_dir, "input_img.jpg")
-            output_path = os.path.join(temp_dir, "story_card.jpg")
+            input_path = os.path.join(temp_dir, "input_img.png")
+            output_path = os.path.join(temp_dir, "story_card.png")
             
             with open(input_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
@@ -186,9 +188,9 @@ if st.button("🎨 Şablonu Oluştur", type="primary", use_container_width=True)
                 
                 with open(result_path, "rb") as f:
                     st.download_button(
-                        label="📥 Görseli İndir",
+                        label="📥 Görseli İndir (4K PNG)",
                         data=f,
-                        file_name="story_kart.jpg",
-                        mime="image/jpeg",
+                        file_name="story_kart_4k.png",
+                        mime="image/png",
                         use_container_width=True
                     )
