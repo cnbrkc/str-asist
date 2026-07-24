@@ -5,15 +5,24 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 # ── Ayarlar ───────────────────────────────────────────────────────────────────
-# 4K Dikey Çözünürlük (2160x3840)
 CANVAS_WIDTH = 2160
 CANVAS_HEIGHT = 3840
 BG_COLOR_RGBA = (18, 25, 36, 255)
 TEXT_COLOR = (255, 255, 255)
 
-# Projenin assets klasöründen fontları okuyoruz
 FONT_BOLD_PATH = os.path.join("assets", "Roboto-Bold.ttf")
 FONT_REG_PATH = os.path.join("assets", "Roboto-Regular.ttf")
+
+# ── Türkçe Büyük Harf Dönüşümü ───────────────────────────────────────────────
+def turkish_upper(text: str) -> str:
+    """
+    Python'un standart upper() metodu Türkçe 'i' ve 'ı' harflerini yanlış çevirir.
+    Bu yüzden önce elle değiştirip sonra upper() uyguluyoruz.
+    """
+    return (text
+            .replace('i', 'İ')
+            .replace('ı', 'I')
+            .upper())
 
 def _get_font(size: int, bold: bool = False):
     path = FONT_BOLD_PATH if bold else FONT_REG_PATH
@@ -41,13 +50,16 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
     try:
         lines = [ln.strip() for ln in post_text.split("\n") if ln.strip()]
         title = lines[0] if lines else "OTOXTRA HABER"
-        title = re.sub(r'[^\w\s]', '', title).strip().upper()
+
+        # Türkçe karakterleri AÇIKÇA koruyan regex + Türkçe upper
+        title = re.sub(r'[^a-zA-Z0-9ÇĞİÖŞÜçğıöşü\s]', '', title).strip()
+        title = turkish_upper(title)
+
         body = "\n".join(lines[1:]) if len(lines) > 1 else ""
 
         dummy_img = Image.new("RGB", (1, 1))
         dummy_draw = ImageDraw.Draw(dummy_img)
 
-        # 4K için font boyutlarını ölçekle (2x)
         font_title = _get_font(110, bold=True)
         title_lines = _wrap_text(dummy_draw, title, font_title, CANVAS_WIDTH - 320)
         title_h = sum([(dummy_draw.textbbox((0,0), line, font=font_title)[3]) for line in title_lines]) + (len(title_lines)-1)*30
@@ -142,7 +154,6 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             draw.text((x, y_cursor), line, font=font_body, fill=TEXT_COLOR)
             y_cursor += bbox[3] + 24
 
-        # PNG formatında ve maksimum kalitede kaydet (4K için şeffaflık desteği)
         canvas.save(output_path, format="PNG", quality=100)
         return output_path
 
@@ -168,7 +179,6 @@ if st.button("🎨 Şablonu Oluştur", type="primary", use_container_width=True)
         st.warning("Lütfen bir görsel yükleyin!")
     else:
         with st.spinner("Muhteşem şablon hazırlanıyor..."):
-            # Geçici dosyalar
             temp_dir = tempfile.mkdtemp()
             input_path = os.path.join(temp_dir, "input_img.png")
             output_path = os.path.join(temp_dir, "story_card.png")
@@ -176,10 +186,8 @@ if st.button("🎨 Şablonu Oluştur", type="primary", use_container_width=True)
             with open(input_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             
-            # Metni birleştir
             full_text = f"{title_text}\n{body_text}"
             
-            # Kartı oluştur
             result_path = create_social_card(full_text, input_path, output_path)
             
             if result_path:
