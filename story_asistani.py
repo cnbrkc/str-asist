@@ -1,15 +1,18 @@
 import os
 import re
+import base64
 import tempfile
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 # ── Ayarlar ───────────────────────────────────────────────────────────────────
+# 4K Dikey Çözünürlük (2160x3840)
 CANVAS_WIDTH = 2160
 CANVAS_HEIGHT = 3840
 BG_COLOR_RGBA = (18, 25, 36, 255)
 TEXT_COLOR = (255, 255, 255)
 
+# Projenin assets klasöründen fontları okuyoruz
 FONT_BOLD_PATH = os.path.join("assets", "Roboto-Bold.ttf")
 FONT_REG_PATH = os.path.join("assets", "Roboto-Regular.ttf")
 
@@ -60,6 +63,7 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         dummy_img = Image.new("RGB", (1, 1))
         dummy_draw = ImageDraw.Draw(dummy_img)
 
+        # 4K için font boyutları
         font_title = _get_font(110, bold=True)
         title_lines = _wrap_text(dummy_draw, title, font_title, CANVAS_WIDTH - 320)
         title_h = sum([(dummy_draw.textbbox((0,0), line, font=font_title)[3]) for line in title_lines]) + (len(title_lines)-1)*30
@@ -154,7 +158,9 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             draw.text((x, y_cursor), line, font=font_body, fill=TEXT_COLOR)
             y_cursor += bbox[3] + 24
 
-        canvas.save(output_path, format="PNG", quality=100)
+        # 4K PNG formatında, maksimum kalitede ve optimize edilmiş şekilde kaydet
+        canvas = canvas.convert("RGB") # iPhone uyumluluğu için RGB'ye çeviriyoruz (Alfa kanalı kalkar)
+        canvas.save(output_path, format="PNG", quality=100, optimize=True)
         return output_path
 
     except Exception as e:
@@ -178,27 +184,42 @@ if st.button("🎨 Şablonu Oluştur", type="primary", use_container_width=True)
     if uploaded_file is None:
         st.warning("Lütfen bir görsel yükleyin!")
     else:
-        with st.spinner("Muhteşem şablon hazırlanıyor..."):
+        with st.spinner("4K Şablon hazırlanıyor..."):
+            # Geçici dosyalar
             temp_dir = tempfile.mkdtemp()
             input_path = os.path.join(temp_dir, "input_img.png")
-            output_path = os.path.join(temp_dir, "story_card.png")
+            output_path = os.path.join(temp_dir, "story_card_4k.png")
             
             with open(input_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             
+            # Metni birleştir
             full_text = f"{title_text}\n{body_text}"
             
+            # Kartı oluştur
             result_path = create_social_card(full_text, input_path, output_path)
             
             if result_path:
-                st.success("Şablon başarıyla oluşturuldu!")
-                st.image(result_path, caption="Önizleme", use_column_width=True)
+                st.success("4K Şablon başarıyla oluşturuldu!")
                 
+                # Görseli base64'e çevirerek doğrudan HTML içinde gösteriyoruz
+                # Bu sayede iPhone "Dosyalar" uygulamasına değil, doğrudan "Fotoğraflar" uygulamasına kaydeder
                 with open(result_path, "rb") as f:
-                    st.download_button(
-                        label="📥 Görseli İndir (4K PNG)",
-                        data=f,
-                        file_name="story_kart_4k.png",
-                        mime="image/png",
-                        use_container_width=True
-                    )
+                    image_bytes = f.read()
+                b64_image = base64.b64encode(image_bytes).decode()
+                
+                # iPhone dostu kaydetme yönergesi
+                st.markdown("""
+                <div style="background-color:#1E293B; padding:15px; border-radius:10px; border:1px solid #334155; margin-bottom:20px;">
+                    <p style="color:#FBBF24; font-weight:bold; margin:0 0 5px 0;">📱 iPhone Kullanıcıları İçin Önemli Not:</p>
+                    <p style="color:#E2E8F0; font-size:14px; margin:0;">
+                    Aşağıdaki görselin üzerine parmağınızla <b>basılı tutun</b> ve açılan menüden <b>"Fotoğrafa Kaydet"</b> (Save to Photos) seçeneğine dokunun. Böylece doğrudan kameranıza 4K kalitesinde inecektir.
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Standart Streamlit image yerine HTML render
+                st.markdown(
+                    f'<img src="data:image/png;base64,{b64_image}" style="width:100%; border-radius:15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);" alt="Story Kart">',
+                    unsafe_allow_html=True
+                )
