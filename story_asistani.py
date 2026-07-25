@@ -14,22 +14,17 @@ TEXT_COLOR = (255, 255, 255)
 FONT_BOLD_PATH = os.path.join("assets", "Roboto-Bold.ttf")
 FONT_REG_PATH = os.path.join("assets", "Roboto-Regular.ttf")
 
-# ── SABİT LAYOUT ZONE'LARI (piksel cinsinden) ────────────────────────────────
-# Her şey bu sabit pozisyonlarda durur. İçerik değişse bile yer KAYMAZ.
-MARGIN_X = 160          # Sol/sağ margin
+# ── LAYOUT SABİTLERİ ──────────────────────────────────────────────────────────
+MARGIN_X = 160                 # Sol/sağ kenar boşluğu
+GAP = 70                       # TÜM elemanlar arası EŞİT boşluk
+LOGO_SIZE = 220                # Logo kare boyutu
+PHOTO_BOX_W = CANVAS_WIDTH - (MARGIN_X * 2)   # 1840
+PHOTO_BOX_H = 1400             # Fotoğrafın sabit kutu yüksekliği
+SAFE_MARGIN = 90               # Taşma olursa kenarda kalacak minimum pay
 
-LOGO_SIZE = 220         # Logo kare boyutu
-LOGO_Y = 450            # Logo'nun üst kenarının Y pozisyonu
-
-TITLE_Y = 520           # Başlığın üst kenarının Y pozisyonu
-TITLE_MAX_H = 600       # Başlık için ayrılan maksimum yükseklik
-
-PHOTO_Y = 1250          # Fotoğrafın üst kenarının Y pozisyonu
-PHOTO_H = 1500          # Fotoğrafın sabit yüksekliği
-PHOTO_W = CANVAS_WIDTH - (MARGIN_X * 2)  # 1840px sabit genişlik
-
-BODY_Y = 2500           # Açıklama metninin üst kenarının Y pozisyonu
-BODY_MAX_H = 900        # Açıklama için ayrılan maksimum yükseklik
+# Metin kutusu maksimum yükseklikleri (auto-shrink buralara sığdırır)
+TITLE_MAX_H = 380
+BODY_MAX_H = 760
 
 
 # ── Türkçe Büyük Harf Dönüşümü ───────────────────────────────────────────────
@@ -49,10 +44,8 @@ def _get_font(size: int, bold: bool = False):
 
 
 def _wrap_text(draw, text, font, max_width):
-    """Metni verilen genişliğe göre satırlara böler."""
     words = text.split()
-    lines = []
-    current_line = ""
+    lines, current_line = [], ""
     for word in words:
         test_line = f"{current_line} {word}".strip()
         bbox = draw.textbbox((0, 0), test_line, font=font)
@@ -67,35 +60,30 @@ def _wrap_text(draw, text, font, max_width):
     return lines
 
 
-def _fit_text_in_box(draw, text, font_size_start, font_size_min,
-                     max_width, max_height, bold=False, line_spacing=28):
-    """
-    Metni verilen kutuya sığdırır. Sığmazsa font boyutunu 4'er küçültür.
-    Returns: (lines, font, total_height)
-    """
-    size = font_size_start
-    while size >= font_size_min:
-        font = _get_font(size, bold=bold)
-        lines = _wrap_text(draw, text, font, max_width)
-        total_h = 0
-        for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=font)
-            total_h += (bbox[3] - bbox[1])
-        total_h += (len(lines) - 1) * line_spacing
-
-        if total_h <= max_height:
-            return lines, font, total_h
-        size -= 4
-
-    # Minimum boyutta bile sığmıyorsa son halini döndür
-    font = _get_font(font_size_min, bold=bold)
-    lines = _wrap_text(draw, text, font, max_width)
-    total_h = 0
+def _measure_lines(draw, lines, font, line_spacing):
+    h = 0
     for line in lines:
         bbox = draw.textbbox((0, 0), line, font=font)
-        total_h += (bbox[3] - bbox[1])
-    total_h += (len(lines) - 1) * line_spacing
-    return lines, font, total_h
+        h += (bbox[3] - bbox[1])
+    h += max(0, len(lines) - 1) * line_spacing
+    return h
+
+
+def _fit_text_in_box(draw, text, size_start, size_min,
+                     max_width, max_height, bold=False, line_spacing=28):
+    """Metni kutuya sığdırır; sığmazsa fontu 4'er küçültür."""
+    size = size_start
+    while size >= size_min:
+        font = _get_font(size, bold=bold)
+        lines = _wrap_text(draw, text, font, max_width)
+        h = _measure_lines(draw, lines, font, line_spacing)
+        if h <= max_height:
+            return lines, font, h
+        size -= 4
+    font = _get_font(size_min, bold=bold)
+    lines = _wrap_text(draw, text, font, max_width)
+    h = _measure_lines(draw, lines, font, line_spacing)
+    return lines, font, h
 
 
 def create_social_card(post_text: str, image_path: str, output_path: str) -> str:
@@ -106,121 +94,115 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         title = turkish_upper(title)
         body = "\n".join(lines[1:]) if len(lines) > 1 else ""
 
-        # ── Canvas oluştur ────────────────────────────────────────────────────
-        canvas = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), BG_COLOR_RGBA)
-
-        # ── Arka plan: Bulanık fotoğraf (cover mod) ──────────────────────────
-        if image_path and os.path.exists(image_path):
-            img_raw = Image.open(image_path).convert("RGB")
-            img_ratio = img_raw.width / img_raw.height
-            canvas_ratio = CANVAS_WIDTH / CANVAS_HEIGHT
-
-            if img_ratio > canvas_ratio:
-                b_h = CANVAS_HEIGHT
-                b_w = int(b_h * img_ratio)
-            else:
-                b_w = CANVAS_WIDTH
-                b_h = int(b_w / img_ratio)
-
-            blur_img = img_raw.resize((b_w, b_h), Image.LANCZOS)
-            blur_img = blur_img.filter(ImageFilter.GaussianBlur(140))
-
-            left = (b_w - CANVAS_WIDTH) // 2
-            top = (b_h - CANVAS_HEIGHT) // 2
-            blur_img = blur_img.crop((left, top, left + CANVAS_WIDTH, top + CANVAS_HEIGHT))
-            canvas.paste(blur_img, (0, 0))
-
-        # ── Karartma overlay (üst ve alt fade) ───────────────────────────────
-        overlay = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), (0, 0, 0, 0))
-        draw_ov = ImageDraw.Draw(overlay)
-        fade_dist = 1200
-        for y in range(CANVAS_HEIGHT):
-            if y < fade_dist:
-                alpha = int(255 * (1 - y / fade_dist))
-            elif y > CANVAS_HEIGHT - fade_dist:
-                alpha = int(255 * ((y - (CANVAS_HEIGHT - fade_dist)) / fade_dist))
-            else:
-                alpha = 0
-            draw_ov.line([(0, y), (CANVAS_WIDTH, y)], fill=(18, 25, 36, alpha))
-        canvas = Image.alpha_composite(canvas, overlay)
-
-        draw = ImageDraw.Draw(canvas)
+        # Ölçüm için geçici draw
+        dummy_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
         content_width = CANVAS_WIDTH - (MARGIN_X * 2)
 
-        # ── 1) LOGO — sabit pozisyon, yatay ortada ───────────────────────────
+        # Metinleri hazırla (auto-shrink)
+        title_lines, title_font, title_h = _fit_text_in_box(
+            dummy_draw, title, 110, 56, content_width, TITLE_MAX_H,
+            bold=True, line_spacing=30)
+
+        if body.strip():
+            body_lines, body_font, body_h = _fit_text_in_box(
+                dummy_draw, body, 70, 38, content_width, BODY_MAX_H,
+                bold=False, line_spacing=24)
+        else:
+            body_lines, body_font, body_h = [], None, 0
+
+        # ── Blok yüksekliğini hesapla (logo + 3*GAP + title + photo + body) ──
+        has_body = body_h > 0
+        gap_count = 2 + (1 if has_body else 0)   # logo-title, title-photo, [photo-body]
+        block_h = LOGO_SIZE + title_h + PHOTO_BOX_H + (body_h if has_body else 0) \
+                  + gap_count * GAP
+
+        # Taşma koruması: sığmıyorsa fotoğraftan kıs (fotoğraf esnek eleman)
+        available = CANVAS_HEIGHT - 2 * SAFE_MARGIN
+        if block_h > available:
+            overflow = block_h - available
+            new_photo_h = max(600, PHOTO_BOX_H - overflow)
+            block_h -= (PHOTO_BOX_H - new_photo_h)
+            photo_box_h = new_photo_h
+        else:
+            photo_box_h = PHOTO_BOX_H
+
+        # ── BLOĞU DİKEY ORTALA ────────────────────────────────────────────────
+        y_start = (CANVAS_HEIGHT - block_h) // 2
+        y = y_start
+
+        # ── Canvas + bulanık arka plan ───────────────────────────────────────
+        canvas = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), BG_COLOR_RGBA)
+
+        if image_path and os.path.exists(image_path):
+            img_raw = Image.open(image_path).convert("RGB")
+            ir = img_raw.width / img_raw.height
+            cr = CANVAS_WIDTH / CANVAS_HEIGHT
+            if ir > cr:
+                b_h, b_w = CANVAS_HEIGHT, int(CANVAS_HEIGHT * ir)
+            else:
+                b_w, b_h = CANVAS_WIDTH, int(CANVAS_WIDTH / ir)
+            blur_img = img_raw.resize((b_w, b_h), Image.LANCZOS) \
+                              .filter(ImageFilter.GaussianBlur(140))
+            l = (b_w - CANVAS_WIDTH) // 2
+            t = (b_h - CANVAS_HEIGHT) // 2
+            blur_img = blur_img.crop((l, t, l + CANVAS_WIDTH, t + CANVAS_HEIGHT))
+            canvas.paste(blur_img, (0, 0))
+
+        # Üst/alt karartma
+        overlay = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), (0, 0, 0, 0))
+        ov_draw = ImageDraw.Draw(overlay)
+        fade = 1200
+        for yy in range(CANVAS_HEIGHT):
+            if yy < fade:
+                a = int(255 * (1 - yy / fade))
+            elif yy > CANVAS_HEIGHT - fade:
+                a = int(255 * ((yy - (CANVAS_HEIGHT - fade)) / fade))
+            else:
+                a = 0
+            ov_draw.line([(0, yy), (CANVAS_WIDTH, yy)], fill=(18, 25, 36, a))
+        canvas = Image.alpha_composite(canvas, overlay)
+        draw = ImageDraw.Draw(canvas)
+
+        # ── 1) LOGO ──────────────────────────────────────────────────────────
         logo_path = os.path.join("assets", "logo.png")
         if os.path.exists(logo_path):
-            logo = Image.open(logo_path).convert("RGBA")
-            logo = logo.resize((LOGO_SIZE, LOGO_SIZE), Image.LANCZOS)
-            logo_x = (CANVAS_WIDTH - LOGO_SIZE) // 2
-            canvas.paste(logo, (logo_x, LOGO_Y), logo)
+            logo = Image.open(logo_path).convert("RGBA") \
+                        .resize((LOGO_SIZE, LOGO_SIZE), Image.LANCZOS)
+            canvas.paste(logo, ((CANVAS_WIDTH - LOGO_SIZE) // 2, y), logo)
+        y += LOGO_SIZE + GAP
 
-        # ── 2) BAŞLIK — sabit zone, dikey ortada, sığmazsa küçülür ──────────
-        title_lines, title_font, title_total_h = _fit_text_in_box(
-            draw, title,
-            font_size_start=110,
-            font_size_min=60,
-            max_width=content_width,
-            max_height=TITLE_MAX_H,
-            bold=True,
-            line_spacing=30
-        )
-        # Zone'un dikey ortasına yerleştir
-        title_block_y = TITLE_Y + (TITLE_MAX_H - title_total_h) // 2
-        y_cur = title_block_y
+        # ── 2) BAŞLIK ────────────────────────────────────────────────────────
         for line in title_lines:
             bbox = draw.textbbox((0, 0), line, font=title_font)
-            line_w = bbox[2] - bbox[0]
-            x = (CANVAS_WIDTH - line_w) // 2
-            draw.text((x, y_cur), line, font=title_font, fill=TEXT_COLOR)
-            y_cur += (bbox[3] - bbox[1]) + 30
+            draw.text(((CANVAS_WIDTH - (bbox[2] - bbox[0])) // 2, y),
+                      line, font=title_font, fill=TEXT_COLOR)
+            y += (bbox[3] - bbox[1]) + 30
+        y = y - 30 + GAP   # son satırın fazla spacing'ini geri al + GAP
 
-        # ── 3) FOTOĞRAF — sabit kutu, "contain" mod, tam ortada ─────────────
+        # ── 3) FOTOĞRAF (sabit kutu, contain, kutu içinde ortada) ────────────
         if image_path and os.path.exists(image_path):
             img = Image.open(image_path).convert("RGB")
-            img_ratio = img.width / img.height
-            box_ratio = PHOTO_W / PHOTO_H
-
-            if img_ratio > box_ratio:
-                # Geniş fotoğraf → genişliğe sığdır
-                n_w = PHOTO_W
-                n_h = int(PHOTO_W / img_ratio)
+            ir = img.width / img.height
+            br = PHOTO_BOX_W / photo_box_h
+            if ir > br:
+                n_w, n_h = PHOTO_BOX_W, int(PHOTO_BOX_W / ir)
             else:
-                # Uzun fotoğraf → yüksekliğe sığdır
-                n_h = PHOTO_H
-                n_w = int(PHOTO_H * img_ratio)
-
+                n_h, n_w = photo_box_h, int(photo_box_h * ir)
             img = img.resize((n_w, n_h), Image.LANCZOS)
-
-            # Kutunun tam ortasına yerleştir
-            img_x = MARGIN_X + (PHOTO_W - n_w) // 2
-            img_y = PHOTO_Y + (PHOTO_H - n_h) // 2
+            img_x = MARGIN_X + (PHOTO_BOX_W - n_w) // 2
+            img_y = y + (photo_box_h - n_h) // 2
             canvas.paste(img, (img_x, img_y))
+        y += photo_box_h + (GAP if has_body else 0)
 
-        # ── 4) AÇIKLAMA METNİ — sabit zone, dikey ortada, sığmazsa küçülür ──
-        if body.strip():
-            body_lines, body_font, body_total_h = _fit_text_in_box(
-                draw, body,
-                font_size_start=70,
-                font_size_min=40,
-                max_width=content_width,
-                max_height=BODY_MAX_H,
-                bold=False,
-                line_spacing=24
-            )
-            # Zone'un dikey ortasına yerleştir
-            body_block_y = BODY_Y + (BODY_MAX_H - body_total_h) // 2
-            y_cur = body_block_y
-            for line in body_lines:
-                bbox = draw.textbbox((0, 0), line, font=body_font)
-                line_w = bbox[2] - bbox[0]
-                x = (CANVAS_WIDTH - line_w) // 2
-                draw.text((x, y_cur), line, font=body_font, fill=TEXT_COLOR)
-                y_cur += (bbox[3] - bbox[1]) + 24
+        # ── 4) AÇIKLAMA ──────────────────────────────────────────────────────
+        for line in body_lines:
+            bbox = draw.textbbox((0, 0), line, font=body_font)
+            draw.text(((CANVAS_WIDTH - (bbox[2] - bbox[0])) // 2, y),
+                      line, font=body_font, fill=TEXT_COLOR)
+            y += (bbox[3] - bbox[1]) + 24
 
-        # ── Kaydet (4K PNG) ──────────────────────────────────────────────────
-        canvas = canvas.convert("RGB")
-        canvas.save(output_path, format="PNG", optimize=True)
+        # ── Kaydet ───────────────────────────────────────────────────────────
+        canvas.convert("RGB").save(output_path, format="PNG", optimize=True)
         return output_path
 
     except Exception as e:
@@ -257,15 +239,13 @@ if st.button("🎨 Şablonu Oluştur", type="primary", use_container_width=True)
             with open(input_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
 
-            full_text = f"{title_text}\n{body_text}"
-            result_path = create_social_card(full_text, input_path, output_path)
+            result_path = create_social_card(f"{title_text}\n{body_text}",
+                                             input_path, output_path)
 
             if result_path:
                 st.success("4K Şablon başarıyla oluşturuldu!")
-
                 with open(result_path, "rb") as f:
-                    image_bytes = f.read()
-                b64_image = base64.b64encode(image_bytes).decode()
+                    b64_image = base64.b64encode(f.read()).decode()
 
                 st.markdown("""
                 <div style="background-color:#1E293B; padding:15px; border-radius:10px;
@@ -273,9 +253,8 @@ if st.button("🎨 Şablonu Oluştur", type="primary", use_container_width=True)
                     <p style="color:#FBBF24; font-weight:bold; margin:0 0 5px 0;">
                         📱 iPhone Kullanıcıları İçin Önemli Not:</p>
                     <p style="color:#E2E8F0; font-size:14px; margin:0;">
-                    Aşağıdaki görselin üzerine parmağınızla <b>basılı tutun</b> ve
-                    açılan menüden <b>"Fotoğrafa Kaydet"</b> seçeneğine dokunun.
-                    </p>
+                    Görselin üzerine parmağınızla <b>basılı tutun</b> →
+                    <b>"Fotoğrafa Kaydet"</b>.</p>
                 </div>
                 """, unsafe_allow_html=True)
 
@@ -283,5 +262,4 @@ if st.button("🎨 Şablonu Oluştur", type="primary", use_container_width=True)
                     f'<img src="data:image/png;base64,{b64_image}" '
                     f'style="width:100%; border-radius:15px; '
                     f'box-shadow: 0 4px 15px rgba(0,0,0,0.5);" alt="Story Kart">',
-                    unsafe_allow_html=True
-                )
+                    unsafe_allow_html=True)
