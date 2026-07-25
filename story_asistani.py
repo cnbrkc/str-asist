@@ -36,15 +36,34 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> li
     words = text.split()
     lines = []
     current_line = ""
+    
     for word in words:
         test_line = f"{current_line} {word}".strip()
         bbox = draw.textbbox((0, 0), test_line, font=font)
+        
         if (bbox[2] - bbox[0]) <= max_width:
             current_line = test_line
         else:
             if current_line:
                 lines.append(current_line)
-            current_line = word
+                current_line = ""
+            
+            bbox_word = draw.textbbox((0, 0), word, font=font)
+            if (bbox_word[2] - bbox_word[0]) > max_width:
+                temp_line = ""
+                for char in word:
+                    test_char = temp_line + char
+                    bbox_c = draw.textbbox((0, 0), test_char, font=font)
+                    if (bbox_c[2] - bbox_c[0]) <= max_width:
+                        temp_line = test_char
+                    else:
+                        if temp_line:
+                            lines.append(temp_line)
+                        temp_line = char
+                current_line = temp_line
+            else:
+                current_line = word
+                
     if current_line:
         lines.append(current_line)
     return lines
@@ -63,75 +82,78 @@ def _fit_contain(img: Image.Image, max_w: int, max_h: int) -> Image.Image:
 
 def _prepare_text(post_text: str):
     lines = [ln.strip() for ln in (post_text or "").split("\n") if ln.strip()]
-    title = lines[0] if lines else "OTOXTRA HABER"
-    title = re.sub(r"[^\w\s]", "", title).strip().upper()
+    title = lines[0] if lines else ""
+    if title:
+        title = re.sub(r"[^\w\s]", "", title).strip().upper()
     body = "\n".join(lines[1:]) if len(lines) > 1 else ""
     return title, body
 
 
 def create_social_card(post_text: str, image_path: str, output_path: str) -> str:
     """
-    Story kart üretimi — DİNAMİK ORTALAMA:
-    - İçerik çok uzunsa görsel otomatik küçülür, hep 1920px içine sığar.
-    - Her zaman tam ortada, sabit aralıklarla.
+    Story kart üretimi — DİNAMİK ORTALAMA ve FERAH TASARIM
     """
     try:
         title, body = _prepare_text(post_text)
 
-        font_title = _get_font(62, bold=True)
-        font_body = _get_font(40, bold=False)
-
-        dummy_img = Image.new("RGB", (1, 1))
-        dummy_draw = ImageDraw.Draw(dummy_img)
-
         max_text_width = CANVAS_WIDTH - 120
-        title_lines = _wrap_text(dummy_draw, title, font_title, max_text_width)
-        body_lines = _wrap_text(dummy_draw, body, font_body, max_text_width)
-
-        # ★ Yeni: Metinlerin taştığı durumlar için satır limiti
-        MAX_TITLE_LINES = 3
-        MAX_BODY_LINES = 8
-        if len(title_lines) > MAX_TITLE_LINES:
-            title_lines = title_lines[:MAX_TITLE_LINES]
-        if len(body_lines) > MAX_BODY_LINES:
-            body_lines = body_lines[:MAX_BODY_LINES]
-
-        # ── Sabit değerler ──
         logo_size = 120
-        gap = 48
+        gap = 80  # ★ ARALIKLARI BURADAN 80 PX YAPTIK, DAHA FERAH!
         max_img_h = 760
 
         logo_path = os.path.join(get_project_root(), "assets", "logo.png")
         has_logo = os.path.exists(logo_path)
 
-        # ── 1) Gerçek yükseklikleri hesapla ──
-        title_h = 0
-        for ln in title_lines:
-            b = dummy_draw.textbbox((0, 0), ln, font=font_title)
-            title_h += (b[3] - b[1]) + 10
-        if title_lines:
-            title_h -= 10
+        dummy_img = Image.new("RGB", (1, 1))
+        dummy_draw = ImageDraw.Draw(dummy_img)
 
-        body_h = 0
-        for ln in body_lines:
-            b = dummy_draw.textbbox((0, 0), ln, font=font_body)
-            body_h += (b[3] - b[1]) + 8
-        if body_lines:
-            body_h -= 8
+        title_font_size = 62
+        body_font_size = 40
+        
+        while title_font_size >= 30 or body_font_size >= 24:
+            font_title = _get_font(title_font_size, bold=True)
+            font_body = _get_font(body_font_size, bold=False)
+            
+            title_lines = _wrap_text(dummy_draw, title, font_title, max_text_width) if title else []
+            body_lines = _wrap_text(dummy_draw, body, font_body, max_text_width) if body else []
 
-        # ── 2) Görsel için dinamik yükseklik limiti (Ekrana sığması için) ──
-        other_h = 0
-        if has_logo:
-            other_h += logo_size + gap
-        if title_lines:
-            other_h += title_h + gap
-        if body_lines:
-            other_h += body_h + gap
+            title_h = 0
+            for ln in title_lines:
+                b = dummy_draw.textbbox((0, 0), ln, font=font_title)
+                title_h += (b[3] - b[1]) + 10
+            if title_lines: title_h -= 10
 
-        available_h = CANVAS_HEIGHT - 80 - other_h
-        dynamic_max_img_h = min(max_img_h, max(100, available_h))
+            body_h = 0
+            for ln in body_lines:
+                b = dummy_draw.textbbox((0, 0), ln, font=font_body)
+                body_h += (b[3] - b[1]) + 8
+            if body_lines: body_h -= 8
 
-        # ── 3) Görseli hazırla (gerçek boyut) ──
+            other_h = 0
+            if has_logo: other_h += logo_size + gap
+            if title_lines: other_h += title_h + gap
+            if body_lines: other_h += body_h + gap
+
+            available_h = CANVAS_HEIGHT - 80 - other_h
+            dynamic_max_img_h = min(max_img_h, max(100, available_h))
+
+            elements = []
+            if has_logo: elements.append(("logo", logo_size))
+            if title_lines: elements.append(("title", title_h))
+            elements.append(("image", dynamic_max_img_h))
+            if body_lines: elements.append(("body", body_h))
+            
+            total_h = sum(h for _, h in elements) + gap * (len(elements) - 1)
+
+            if total_h <= CANVAS_HEIGHT - 80:
+                break
+            
+            if title_font_size > 30: title_font_size -= 2
+            if body_font_size > 24: body_font_size -= 2
+            
+            if title_font_size <= 30 and body_font_size <= 24:
+                break
+
         main_img = None
         img_actual_h = 0
         if image_path and os.path.exists(image_path):
@@ -142,28 +164,18 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             except Exception as e:
                 log(f"Ana gorsel islenemedi: {e}", "WARNING")
 
-        # ── 4) Sadece VAR OLAN elementleri topla ──
         elements = []
-        if has_logo:
-            elements.append(("logo", logo_size))
-        if title_lines:
-            elements.append(("title", title_h))
-        if main_img is not None:
-            elements.append(("image", img_actual_h))
-        if body_lines:
-            elements.append(("body", body_h))
+        if has_logo: elements.append(("logo", logo_size))
+        if title_lines: elements.append(("title", title_h))
+        if main_img is not None: elements.append(("image", img_actual_h))
+        if body_lines: elements.append(("body", body_h))
 
-        # ── 5) Toplam yükseklik + dikey ortalama ──
         num_gaps = max(0, len(elements) - 1)
         total_h = sum(h for _, h in elements) + gap * num_gaps
-        
-        # Artık total_h kesinlikle CANVAS_HEIGHT'tan küçük!
         y_cursor = max(40, (CANVAS_HEIGHT - total_h) // 2)
 
-        # ── 6) Canvas oluştur ──
         canvas = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), BG_COLOR_RGBA)
 
-        # Blur arka plan
         if image_path and os.path.exists(image_path):
             try:
                 src = Image.open(image_path).convert("RGB")
@@ -173,12 +185,10 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             except Exception as e:
                 log(f"Blur arka plan hazirlanamadi: {e}", "WARNING")
 
-        # Karartma katmanı
         overlay = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), (18, 25, 36, 120))
         canvas = Image.alpha_composite(canvas, overlay)
         draw = ImageDraw.Draw(canvas)
 
-        # ── 7) Elementleri sırayla çiz ──
         for idx, (elem_type, _) in enumerate(elements):
             if idx > 0:
                 y_cursor += gap
@@ -232,7 +242,6 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
                     y_cursor += lh + 8
                 y_cursor -= 8
 
-        # ── 8) Kaydet ──
         final_img = canvas.convert("RGB")
         lower = (output_path or "").lower()
 
@@ -256,10 +265,19 @@ st.markdown("Fotoğrafı yükle, metinleri yaz, saniyeler içinde o muhteşem ş
 
 col1, col2 = st.columns(2)
 with col1:
-    title_text = st.text_input("📝 Başlık (Marka / Model / Konu)", "ÖZEL KAMPANYA")
+    # value="" ile boş başlatıyoruz, placeholder ile arka planda ipucu veriyoruz
+    title_text = st.text_input(
+        "📝 Başlık (Marka / Model / Konu)", 
+        value="", 
+        placeholder="Örn: DAYANIKLILIĞIN ADI TOYOTA COROLLA"
+    )
 with col2:
-    body_text = st.text_area("📄 Alt Metin (Fiyat / Detay)",
-                             "Sadece bu hafta geçerlidir!\nFiyat: 1.250.000 TL")
+    body_text = st.text_area(
+        "📄 Alt Metin (Fiyat / Detay)", 
+        value="", 
+        placeholder="Örn: Sadece bu hafta geçerlidir! Fiyat: 1.250.000 TL",
+        height=150
+    )
 
 uploaded_file = st.file_uploader("⬆️ Araç/Haber Görselini Yükle",
                                  type=['jpg', 'jpeg', 'png'])
