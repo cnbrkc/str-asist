@@ -19,16 +19,16 @@ FONT_REG_PATH = os.path.join("assets", "Roboto-Regular.ttf")
 MARGIN_X = 160          # Sol/sağ margin
 
 LOGO_SIZE = 220         # Logo kare boyutu
-LOGO_Y = 200            # Logo'nun üst kenarının Y pozisyonu
+LOGO_Y = 450            # Logo'nun üst kenarının Y pozisyonu
 
 TITLE_Y = 520           # Başlığın üst kenarının Y pozisyonu
-TITLE_MAX_H = 400       # Başlık için ayrılan maksimum yükseklik
+TITLE_MAX_H = 600       # Başlık için ayrılan maksimum yükseklik
 
-PHOTO_Y = 1050          # Fotoğrafın üst kenarının Y pozisyonu
+PHOTO_Y = 1250          # Fotoğrafın üst kenarının Y pozisyonu
 PHOTO_H = 1500          # Fotoğrafın sabit yüksekliği
 PHOTO_W = CANVAS_WIDTH - (MARGIN_X * 2)  # 1840px sabit genişlik
 
-BODY_Y = 2750           # Açıklama metninin üst kenarının Y pozisyonu
+BODY_Y = 2500           # Açıklama metninin üst kenarının Y pozisyonu
 BODY_MAX_H = 900        # Açıklama için ayrılan maksimum yükseklik
 
 
