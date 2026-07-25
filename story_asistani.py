@@ -6,19 +6,14 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
 
 
-# ── O botun altyapısına uyarlamalar (sadece import karşılıkları) ─────────────
 def get_project_root() -> str:
-    # O botta core.config_loader'dan geliyordu; burada app'in çalıştığı dizin.
     return os.getcwd()
 
 
 def log(msg: str, level: str = "INFO") -> None:
-    # O botta core.logger'dan geliyordu; burada konsola yazar.
-    print(f"[{level}] {msg")
+    print(f"[{level}] {msg}")
 
 
-# ── O botun kodu BİREBİR (1080x1920) ─────────────────────────────────────────
-# Story boyutu (IG/Facebook Story standard)
 CANVAS_WIDTH = 1080
 CANVAS_HEIGHT = 1920
 
@@ -41,7 +36,6 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> li
     words = text.split()
     lines = []
     current_line = ""
-
     for word in words:
         test_line = f"{current_line} {word}".strip()
         bbox = draw.textbbox((0, 0), test_line, font=font)
@@ -51,10 +45,8 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> li
             if current_line:
                 lines.append(current_line)
             current_line = word
-
     if current_line:
         lines.append(current_line)
-
     return lines
 
 
@@ -79,12 +71,11 @@ def _prepare_text(post_text: str):
 
 def create_social_card(post_text: str, image_path: str, output_path: str) -> str:
     """
-    Story kart üretimi:
-    - 1080x1920 canvas
-    - Blur arka plan
-    - Ortada net ana görsel
-    - Üstte başlık, altta açıklama
-    - PNG/JPEG uzantısına göre uygun export
+    Story kart üretimi — TAM ORTALI:
+    - Tüm elementler (logo, başlık, görsel, metin) dikey olarak tam ortada
+    - Elementler arası SABİT gap (48px)
+    - Görselin GERÇEK yüksekliği kullanılır (sabit kutu yüksekliği değil)
+    - Yatayda da tam ortalanmış (textbbox offset düzeltmesi ile)
     """
     try:
         title, body = _prepare_text(post_text)
@@ -99,27 +90,57 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         title_lines = _wrap_text(dummy_draw, title, font_title, max_text_width)
         body_lines = _wrap_text(dummy_draw, body, font_body, max_text_width)
 
+        # ── Sabit değerler ──
+        logo_size = 120
+        gap = 48            # ★ TÜM elementler arası tek sabit boşluk
+        max_img_h = 760      # Görsel için maksimum yükseklik (güvenlik limiti)
+
+        # ── 1) Gerçek yükseklikleri hesapla ──
+        # Başlık
         title_h = 0
         for ln in title_lines:
             b = dummy_draw.textbbox((0, 0), ln, font=font_title)
             title_h += (b[3] - b[1]) + 10
-        title_h = max(0, title_h - 10)
+        if title_lines:
+            title_h -= 10  # son satırın alt gap'ini çıkar
 
+        # Alt metin
         body_h = 0
         for ln in body_lines:
             b = dummy_draw.textbbox((0, 0), ln, font=font_body)
             body_h += (b[3] - b[1]) + 8
-        body_h = max(0, body_h - 8)
+        if body_lines:
+            body_h -= 8
 
-        logo_size = 120
-        image_box_h = 760
-        gap = 48
+        # Görsel — GERÇEK boyutunu al (sabit 760 DEĞİL)
+        main_img = None
+        img_actual_h = 0
+        if image_path and os.path.exists(image_path):
+            try:
+                src = Image.open(image_path).convert("RGB")
+                main_img = _fit_contain(src, CANVAS_WIDTH - 80, max_img_h)
+                img_actual_h = main_img.height  # ★ gerçek yükseklik
+            except Exception as e:
+                log(f"Ana gorsel islenemedi: {e}", "WARNING")
 
-        total_h = logo_size + gap + title_h + gap + image_box_h + gap + body_h
+        # ── 2) Sadece VAR OLAN elementleri topla ──
+        elements = [("logo", logo_size)]
+        if title_lines:
+            elements.append(("title", title_h))
+        if main_img is not None:
+            elements.append(("image", img_actual_h))  # ★ gerçek yükseklik
+        if body_lines:
+            elements.append(("body", body_h))
+
+        # ── 3) Toplam yükseklik + dikey ortalama ──
+        num_gaps = max(0, len(elements) - 1)
+        total_h = sum(h for _, h in elements) + gap * num_gaps
         y_cursor = max(40, (CANVAS_HEIGHT - total_h) // 2)
 
+        # ── 4) Canvas oluştur ──
         canvas = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), BG_COLOR_RGBA)
 
+        # Blur arka plan
         if image_path and os.path.exists(image_path):
             try:
                 src = Image.open(image_path).convert("RGB")
@@ -129,82 +150,78 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             except Exception as e:
                 log(f"Blur arka plan hazirlanamadi: {e}", "WARNING")
 
+        # Karartma katmanı
         overlay = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), (18, 25, 36, 120))
         canvas = Image.alpha_composite(canvas, overlay)
         draw = ImageDraw.Draw(canvas)
 
-        logo_path = os.path.join(get_project_root(), "assets", "logo.png")
-        if os.path.exists(logo_path):
-            try:
-                logo = Image.open(logo_path).convert("RGBA")
-                logo = logo.resize((logo_size, logo_size), Image.LANCZOS)
-                logo_x = (CANVAS_WIDTH - logo_size) // 2
-                canvas.paste(logo, (logo_x, y_cursor), logo)
-            except Exception as e:
-                log(f"Logo islenemedi: {e}", "WARNING")
-        y_cursor += logo_size + gap
+        # ── 5) Elementleri sırayla çiz — gap sadece elementler arası ──
+        for idx, (elem_type, _) in enumerate(elements):
+            if idx > 0:
+                y_cursor += gap  # ★ sabit gap, her element öncesi
 
-        for ln in title_lines:
-            b = draw.textbbox((0, 0), ln, font=font_title)
-            lw = b[2] - b[0]
-            lh = b[3] - b[1]
-            x = (CANVAS_WIDTH - lw) // 2
-            draw.text((x + 2, y_cursor + 2), ln, font=font_title, fill=(0, 0, 0, 140))
-            draw.text((x, y_cursor), ln, font=font_title, fill=TEXT_COLOR)
-            y_cursor += lh + 10
+            if elem_type == "logo":
+                logo_path = os.path.join(get_project_root(), "assets", "logo.png")
+                if os.path.exists(logo_path):
+                    try:
+                        logo = Image.open(logo_path).convert("RGBA")
+                        logo = logo.resize((logo_size, logo_size), Image.LANCZOS)
+                        logo_x = (CANVAS_WIDTH - logo_size) // 2
+                        canvas.paste(logo, (logo_x, y_cursor), logo)
+                    except Exception as e:
+                        log(f"Logo islenemedi: {e}", "WARNING")
+                y_cursor += logo_size
 
-        y_cursor += gap
+            elif elem_type == "title":
+                for ln in title_lines:
+                    b = draw.textbbox((0, 0), ln, font=font_title)
+                    lw = b[2] - b[0]
+                    lh = b[3] - b[1]
+                    # ★ b[0] offset'ini çıkar → gerçek yatay ortalama
+                    x = (CANVAS_WIDTH - lw) // 2 - b[0]
+                    draw.text((x + 2, y_cursor + 2), ln, font=font_title, fill=(0, 0, 0, 140))
+                    draw.text((x, y_cursor), ln, font=font_title, fill=TEXT_COLOR)
+                    y_cursor += lh + 10
+                y_cursor -= 10  # son satır gap'ini geri al
 
-        img_top = y_cursor
-        if image_path and os.path.exists(image_path):
-            try:
-                src = Image.open(image_path).convert("RGB")
-                main_img = _fit_contain(src, CANVAS_WIDTH - 80, image_box_h)
-
+            elif elem_type == "image":
                 img_w, img_h = main_img.size
                 img_x = (CANVAS_WIDTH - img_w) // 2
-                img_y = img_top + (image_box_h - img_h) // 2
 
+                # Yuvarlatılmış köşeler için maske
                 mask = Image.new("L", (img_w, img_h), 0)
                 mdraw = ImageDraw.Draw(mask)
                 mdraw.rounded_rectangle((0, 0, img_w, img_h), radius=20, fill=255)
 
+                # Gölge
                 shadow = Image.new("RGBA", (img_w + 12, img_h + 12), (0, 0, 0, 0))
                 sdraw = ImageDraw.Draw(shadow)
                 sdraw.rounded_rectangle((6, 6, img_w + 6, img_h + 6), radius=24, fill=(0, 0, 0, 90))
-                canvas.alpha_composite(shadow, dest=(img_x - 6, img_y - 6))
+                canvas.alpha_composite(shadow, dest=(img_x - 6, y_cursor - 6))
 
                 main_rgba = main_img.convert("RGBA")
-                canvas.paste(main_rgba, (img_x, img_y), mask)
-            except Exception as e:
-                log(f"Ana gorsel islenemedi: {e}", "WARNING")
+                canvas.paste(main_rgba, (img_x, y_cursor), mask)
+                y_cursor += img_h  # ★ gerçek yükseklik kadar ilerle
 
-        y_cursor += image_box_h + gap
+            elif elem_type == "body":
+                for ln in body_lines:
+                    b = draw.textbbox((0, 0), ln, font=font_body)
+                    lw = b[2] - b[0]
+                    lh = b[3] - b[1]
+                    x = (CANVAS_WIDTH - lw) // 2 - b[0]
+                    draw.text((x + 1, y_cursor + 1), ln, font=font_body, fill=(0, 0, 0, 130))
+                    draw.text((x, y_cursor), ln, font=font_body, fill=TEXT_COLOR)
+                    y_cursor += lh + 8
+                y_cursor -= 8
 
-        for ln in body_lines:
-            b = draw.textbbox((0, 0), ln, font=font_body)
-            lw = b[2] - b[0]
-            lh = b[3] - b[1]
-            x = (CANVAS_WIDTH - lw) // 2
-            draw.text((x + 1, y_cursor + 1), ln, font=font_body, fill=(0, 0, 0, 130))
-            draw.text((x, y_cursor), ln, font=font_body, fill=TEXT_COLOR)
-            y_cursor += lh + 8
-
+        # ── 6) Kaydet ──
         final_img = canvas.convert("RGB")
         lower = (output_path or "").lower()
 
         if lower.endswith(".png"):
-            # Metin netligi icin en iyi secenek
             final_img.save(output_path, format="PNG", optimize=True, compress_level=4)
         else:
-            # JPEG gerekirse kalite odakli
-            final_img.save(
-                output_path,
-                format="JPEG",
-                quality=95,
-                optimize=True,
-                subsampling=0
-            )
+            final_img.save(output_path, format="JPEG", quality=95, optimize=True, subsampling=0)
 
         log(f"Sosyal medya karti olusturuldu: {output_path}")
         return output_path
@@ -214,7 +231,7 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         return image_path
 
 
-# ── STREAMLIT ARAYÜZÜ ────────────────────────────────────────────────────────
+# ── STREAMLIT ARAYÜZÜ ──
 st.set_page_config(page_title="Story Asistanım", page_icon="📸", layout="centered")
 st.title("📸 Story Asistanım")
 st.markdown("Fotoğrafı yükle, metinleri yaz, saniyeler içinde o muhteşem şablonu indir!")
@@ -244,7 +261,6 @@ if st.button("🎨 Şablonu Oluştur", type="primary", use_container_width=True)
             full_text = f"{title_text}\n{body_text}"
             result_path = create_social_card(full_text, input_path, output_path)
 
-            # O bot hata anında input_path döner; o durumda uyarı ver.
             if result_path and result_path != input_path and os.path.exists(result_path):
                 st.success("Şablon başarıyla oluşturuldu!")
                 with open(result_path, "rb") as f:
