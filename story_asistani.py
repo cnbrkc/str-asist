@@ -145,10 +145,19 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
 
         side_padding = 60
         max_text_width = CANVAS_WIDTH - side_padding * 2
-        logo_size = 210            # ↑ büyütüldü (190 → 210)
+        logo_size = 210            # logo boyutu
         logo_top_margin = 80      # logo ile canvas üst kenarı arasındaki sabit boşluk
-        logo_packet_gap = 70      # logo ile (başlık+foto+altmetin) paketi arasındaki boşluk
-        gap = 70                  # paket içi elementler arası boşluk
+
+        # Gap'ler dinamik — paket sığmıyorsa önce gap'leri daraltırız, fontu değil.
+        gap_max = 70              # elementler arası (logo↔başlık, başlık↔foto, foto↔altmetin) maksimum boşluk
+        gap_min = 28              # bu değerin altına gap'i düşürmeyiz; düşerse gap'i sabit tutup font küçültürüz
+        gap_step = 4              # her daraltma adımında gap'i ne kadar küçültürüz
+
+        line_gap_max = 12         # başlık satırları arası maksimum
+        line_gap_min = 6          # satır arası minimum
+        body_line_gap_max = 10
+        body_line_gap_min = 5
+
         max_img_h = 880
         img_max_w = CANVAS_WIDTH - 120  # kenarlardan 60'ar px boşluk (köşelere dayanmaz)
 
@@ -158,70 +167,101 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         dummy_img = Image.new("RGB", (1, 1))
         dummy_draw = ImageDraw.Draw(dummy_img)
 
-        title_font_size = 62
-        body_font_size = 40
-        title_line_gap = 12
-        body_line_gap = 10
+        # Font küçültme limitleri
+        TITLE_FONT_MIN = 48       # başlık fontu bu alt sınırın altına inmez
+        BODY_FONT_MIN = 32        # alt metin fontu bu alt sınırın altına inmez
 
-        # ── Font boyutunu dinamik küçült (taşmayı önle) ──
-        while title_font_size >= 30 or body_font_size >= 24:
-            font_title = _get_font(title_font_size, bold=True)
-            font_body = _get_font(body_font_size, bold=False)
+        title_font_size = 72
+        body_font_size = 60
 
-            title_lines = _wrap_text(dummy_draw, title, font_title, max_text_width, stroke_width=TITLE_STROKE_WIDTH) if title else []
-            body_lines = _wrap_text(dummy_draw, body, font_body, max_text_width, stroke_width=BODY_STROKE_WIDTH) if body else []
+        def _compute_layout(tfs, bfs, g, tlg, blg):
+            """Belirli font + gap değerleri için paket yüksekliğini hesaplar."""
+            ft = _get_font(tfs, bold=True)
+            fb = _get_font(bfs, bold=False)
 
-            title_h = 0
-            for ln in title_lines:
-                b = dummy_draw.textbbox((0, 0), ln, font=font_title, stroke_width=TITLE_STROKE_WIDTH, anchor="lt")
-                title_h += (b[3] - b[1]) + title_line_gap
-            if title_lines:
-                title_h -= title_line_gap
+            tl = _wrap_text(dummy_draw, title, ft, max_text_width, stroke_width=TITLE_STROKE_WIDTH) if title else []
+            bl = _wrap_text(dummy_draw, body, fb, max_text_width, stroke_width=BODY_STROKE_WIDTH) if body else []
 
-            body_h = 0
-            for ln in body_lines:
-                b = dummy_draw.textbbox((0, 0), ln, font=font_body, stroke_width=BODY_STROKE_WIDTH, anchor="lt")
-                body_h += (b[3] - b[1]) + body_line_gap
-            if body_lines:
-                body_h -= body_line_gap
+            th = 0
+            for ln in tl:
+                b = dummy_draw.textbbox((0, 0), ln, font=ft, stroke_width=TITLE_STROKE_WIDTH, anchor="lt")
+                th += (b[3] - b[1]) + tlg
+            if tl:
+                th -= tlg
 
-            # Logo artık ortalama hesabına DAHİL DEĞİL.
-            # Sadece (başlık + foto + alt metin) paketi için yer ayrılır.
-            packet_h = 0
-            if title_lines:
-                packet_h += title_h + gap
-            if body_lines:
-                packet_h += body_h + gap
-            # image height paketin içinde ama gap ile eklenecek
+            bh = 0
+            for ln in bl:
+                b = dummy_draw.textbbox((0, 0), ln, font=fb, stroke_width=BODY_STROKE_WIDTH, anchor="lt")
+                bh += (b[3] - b[1]) + blg
+            if bl:
+                bh -= blg
 
-            # Logo üstte sabit duracağı için, paketin üst sınırı en azından
-            #   logo_top_margin + logo_size + logo_packet_gap
-            # altında olmalı. Paket zaten canvas ortasında olacağı için
-            # bu kural genelde otomatik sağlanır.
+            dyn_img_h = min(max_img_h, max(100, CANVAS_HEIGHT - 80))
 
-            available_h = CANVAS_HEIGHT - 80 - (logo_size + logo_top_margin + logo_packet_gap)
-            dynamic_max_img_h = min(max_img_h, max(100, available_h))
+            elems = []
+            if tl:
+                elems.append(("title", th))
+            elems.append(("image", dyn_img_h))
+            if bl:
+                elems.append(("body", bh))
 
-            # Paket (logo hariç): başlık + foto + alt metin
-            packet_elements = []
-            if title_lines:
-                packet_elements.append(("title", title_h))
-            packet_elements.append(("image", dynamic_max_img_h))
-            if body_lines:
-                packet_elements.append(("body", body_h))
+            ptotal = sum(h for _, h in elems) + g * (len(elems) - 1)
 
-            packet_total_h = sum(h for _, h in packet_elements) + gap * (len(packet_elements) - 1)
+            # Logo dahil değil ama logoya yer ayrılması gerekir (üst kenardan)
+            logo_reserve = (logo_size + g) if has_logo else 0  # logo_packet_gap = g ile aynı
+            max_for_logo = CANVAS_HEIGHT - 2 * (logo_top_margin + logo_reserve) if has_logo else CANVAS_HEIGHT - 80
+            eff_max = min(max_for_logo, CANVAS_HEIGHT - 80)
 
-            if packet_total_h <= CANVAS_HEIGHT - 80:
-                break
+            return tl, bl, ft, fb, th, bh, dyn_img_h, ptotal, eff_max
 
-            if title_font_size > 30:
+        # ── Aşama 1: gap'leri daraltarak sığdır (font sabit) ──
+        gap = gap_max
+        title_line_gap = line_gap_max
+        body_line_gap = body_line_gap_max
+
+        while True:
+            (title_lines, body_lines, font_title, font_body,
+             title_h, body_h, dynamic_max_img_h,
+             packet_total_h, effective_max) = _compute_layout(
+                title_font_size, body_font_size, gap, title_line_gap, body_line_gap
+            )
+
+            if packet_total_h <= effective_max:
+                break  # sığdı!
+
+            # Önce element gap'ini daralt
+            if gap > gap_min:
+                gap = max(gap_min, gap - gap_step)
+                continue
+            # Sonra başlık satır arası
+            if title_line_gap > line_gap_min:
+                title_line_gap = max(line_gap_min, title_line_gap - 2)
+                continue
+            # Sonra alt metin satır arası
+            if body_line_gap > body_line_gap_min:
+                body_line_gap = max(body_line_gap_min, body_line_gap - 1)
+                continue
+
+            # Gap'ler minimumda ama hâlâ sığmıyor → font küçültme aşamasına geç
+            break
+
+        # ── Aşama 2: gap'ler minimumda, hâlâ sığmıyorsa fontu küçült ──
+        while packet_total_h > effective_max:
+            reduced = False
+            if title_font_size > TITLE_FONT_MIN:
                 title_font_size -= 2
-            if body_font_size > 24:
+                reduced = True
+            if body_font_size > BODY_FONT_MIN:
                 body_font_size -= 2
+                reduced = True
+            if not reduced:
+                break  # ikisi de minimumda, daha fazla küçültülemiyor
 
-            if title_font_size <= 30 and body_font_size <= 24:
-                break
+            (title_lines, body_lines, font_title, font_body,
+             title_h, body_h, dynamic_max_img_h,
+             packet_total_h, effective_max) = _compute_layout(
+                title_font_size, body_font_size, gap, title_line_gap, body_line_gap
+            )
 
         # ── Ana görseli işle ──
         main_img = None
@@ -235,8 +275,8 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
                 log(f"Ana gorsel islenemedi: {e}", "WARNING")
 
         # ── Yerleşim planı ──
-        # Paket = (başlık + foto + alt metin) → canvas'ın TAM ortasında
-        # Logo = paketin ÜSTÜNDE, sabit mesafede (ortalama dışı)
+        # PAKET = (başlık + foto + alt metin) → canvas'ın TAM ortasında
+        # LOGO = başlığın tam `gap` kadar üstünde, sağdan soldan ortalı
         packet_elements = []
         if title_lines:
             packet_elements.append(("title", title_h))
@@ -248,16 +288,12 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         num_gaps = max(0, len(packet_elements) - 1)
         packet_total_h = sum(h for _, h in packet_elements) + gap * num_gaps
 
-        # Paket dikey ortada
-        packet_y_start = max(40, (CANVAS_HEIGHT - packet_total_h) // 2)
+        # Paket CANVAS'IN TAM ORTASINDA (logo hariç hesaplanır)
+        packet_y_start = (CANVAS_HEIGHT - packet_total_h) // 2
 
-        # Logo: paketin üstünde, sabit gap ile.
-        # Eğer paket kısaysa → logo = packet_y_start - logo_packet_gap - logo_size
-        # Eğer paket uzunduysa ve logo üst kenardan çok yaklaşrsa →
-        #   logo_top_margin ile üst kenardan en az bu kadar uzak tut.
+        # Logo: başlığın tam `gap` kadar üstünde (logo_packet_gap = gap ile aynı tutulur)
         if has_logo:
-            desired_logo_y = packet_y_start - logo_packet_gap - logo_size
-            logo_y = max(logo_top_margin, desired_logo_y)
+            logo_y = packet_y_start - gap - logo_size
 
         # ── Tuvali oluştur ──
         canvas = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), BG_COLOR_RGBA)
