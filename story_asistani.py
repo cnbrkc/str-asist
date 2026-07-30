@@ -100,46 +100,43 @@ def _draw_centered_line(canvas, x_center, y_top, text, font, fill, stroke_width,
 
 
 # ═══════════════════════════════════════════════════════════
-#  ANA FONKSİYON — "İçerik Kral" yerleşim motoru
+#  ANA FONKSİYON — "İçerik Kral" yerleşim motoru (OPTİMİZE)
 #
-#  Yerleşim formülü:
-#    1920 = 2g + logo + g + başlık + g + foto + g + altmetin + 2g
-#    1920 = 7g + içerik_toplam
-#    g    = (1920 − içerik_toplam) / 7
+#  Formül:  1920 = 2g + logo + g + başlık + g + foto + g + altmetin + 2g
+#           g    = (1920 − içerik) / 7
 #
-#  • İçerik her zaman MAX başlar (font 72/60, foto 880px)
-#  • gap ≥ 20  → olduğu gibi bas (içerik kral)
-#  • gap < 20  → foto ve font küçült (zorunluluk)
-#  • gap > 160 → gap'i sabitle, bloğu ortala (içerik çok az)
+#  • Fontlar makul başlar (64 / 46) → içerik şişmez
+#  • GAP_MIN = 30  → üst/alt margin ASLA 60px altına inmez (dibe yapışma yok)
+#  • GAP_MAX = 95  → içerik azken dev boşluk yok
+#  • Sığmazsa önce fontlar, sonra foto küçülür
 # ═══════════════════════════════════════════════════════════
 def create_social_card(post_text: str, image_path: str, output_path: str) -> str:
     try:
         title, body = _prepare_text(post_text)
 
-        # ── Sabitler ──
-        SIDE_PAD      = 60
-        MAX_TEXT_W    = CANVAS_WIDTH - 2 * SIDE_PAD
-        LOGO_SIZE     = 210
-        IMG_MAX_W     = CANVAS_WIDTH - 120
+        # ── Sabitler (OPTİMİZE) ──
+        SIDE_PAD   = 60
+        MAX_TEXT_W = CANVAS_WIDTH - 2 * SIDE_PAD
+        LOGO_SIZE  = 210
+        IMG_MAX_W  = CANVAS_WIDTH - 120
 
-        TITLE_FONT_MAX = 72
-        TITLE_FONT_MIN = 48
-        BODY_FONT_MAX  = 60
-        BODY_FONT_MIN  = 32
-        TITLE_LINE_GAP = 8
-        BODY_LINE_GAP  = 6
+        TITLE_FONT_MAX = 64      # 72 → 64
+        TITLE_FONT_MIN = 44
+        BODY_FONT_MAX  = 46      # 60 → 46  (en büyük kazanç burada)
+        BODY_FONT_MIN  = 30
+        TITLE_LINE_GAP = 6
+        BODY_LINE_GAP  = 5
 
-        IMG_H_MAX = 880
-        IMG_H_MIN = 250
+        IMG_H_MAX = 820          # 880 → 820
+        IMG_H_MIN = 260
 
-        GAP_MIN = 20
-        GAP_MAX = 160
+        GAP_MIN = 30             # 20 → 30  (margin sigortası: 2*30 = 60px)
+        GAP_MAX = 95             # 160 → 95
 
         logo_path = os.path.join(get_project_root(), "assets", "logo.png")
         has_logo  = os.path.exists(logo_path)
         has_image = bool(image_path) and os.path.exists(image_path)
 
-        # ── Ana görseli bir kere aç ──
         src_img = None
         if has_image:
             try:
@@ -148,7 +145,7 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
                 log(f"Gorsel acilamadi: {e}", "WARNING")
                 has_image = False
 
-        # ── Eleman listesi (her zaman bu sıra) ──
+        # ── Eleman listesi ──
         elem_keys = []
         if has_logo:  elem_keys.append("logo")
         if title:     elem_keys.append("title")
@@ -156,10 +153,8 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         if body:      elem_keys.append("body")
 
         num_elems = len(elem_keys)
-        # gap sayısı = (elemanlar arası: n-1) + (üst: 2) + (alt: 2) = n + 3
-        num_gaps = num_elems + 3
+        num_gaps  = num_elems + 3          # 2 üst + (n-1) ara + 2 alt
 
-        # ── Ölçüm yardımcıları ──
         dummy = Image.new("RGB", (1, 1))
         dd    = ImageDraw.Draw(dummy)
 
@@ -169,11 +164,9 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             f = _get_font(fs, bold=True)
             lns = _wrap_text(dd, title, f, MAX_TEXT_W, TITLE_STROKE_WIDTH)
             h = sum(
-                (dd.textbbox((0,0), l, font=f, stroke_width=TITLE_STROKE_WIDTH, anchor="lt")[3]
-                 - dd.textbbox((0,0), l, font=f, stroke_width=TITLE_STROKE_WIDTH, anchor="lt")[1])
-                + TITLE_LINE_GAP
-                for l in lns
-            )
+                (dd.textbbox((0, 0), l, font=f, stroke_width=TITLE_STROKE_WIDTH, anchor="lt")[3]
+                 - dd.textbbox((0, 0), l, font=f, stroke_width=TITLE_STROKE_WIDTH, anchor="lt")[1])
+                + TITLE_LINE_GAP for l in lns)
             if lns:
                 h -= TITLE_LINE_GAP
             return h, lns, f
@@ -184,11 +177,9 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             f = _get_font(fs, bold=False)
             lns = _wrap_text(dd, body, f, MAX_TEXT_W, BODY_STROKE_WIDTH)
             h = sum(
-                (dd.textbbox((0,0), l, font=f, stroke_width=BODY_STROKE_WIDTH, anchor="lt")[3]
-                 - dd.textbbox((0,0), l, font=f, stroke_width=BODY_STROKE_WIDTH, anchor="lt")[1])
-                + BODY_LINE_GAP
-                for l in lns
-            )
+                (dd.textbbox((0, 0), l, font=f, stroke_width=BODY_STROKE_WIDTH, anchor="lt")[3]
+                 - dd.textbbox((0, 0), l, font=f, stroke_width=BODY_STROKE_WIDTH, anchor="lt")[1])
+                + BODY_LINE_GAP for l in lns)
             if lns:
                 h -= BODY_LINE_GAP
             return h, lns, f
@@ -200,8 +191,8 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             return fitted.height, fitted
 
         # ══════════════════════════════════════════════════
-        #  AŞAMA 1 — İçerik MAX, gap arta kalan
-        #  gap < GAP_MIN olursa → AŞAMA 2 (içerik küçült)
+        #  HESAP: içerik max başlar, gap arta kalan.
+        #  gap < 30 olursa fontlar+foto birlikte küçülür.
         # ══════════════════════════════════════════════════
         tfs        = TITLE_FONT_MAX
         bfs        = BODY_FONT_MAX
@@ -223,26 +214,22 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             if gap >= GAP_MIN:
                 break
 
-            # ── AŞAMA 2 — içerik küçült ──
+            # Sığmadı → birlikte küçült (hiyerarşi korunsun)
             shrunk = False
-            if img_slot_h > IMG_H_MIN:
-                img_slot_h = max(IMG_H_MIN, img_slot_h - 30)
-                shrunk = True
             if tfs > TITLE_FONT_MIN:
-                tfs = max(TITLE_FONT_MIN, tfs - 2)
-                shrunk = True
+                tfs = max(TITLE_FONT_MIN, tfs - 2); shrunk = True
             if bfs > BODY_FONT_MIN:
-                bfs = max(BODY_FONT_MIN, bfs - 2)
-                shrunk = True
+                bfs = max(BODY_FONT_MIN, bfs - 2); shrunk = True
+            if img_slot_h > IMG_H_MIN:
+                img_slot_h = max(IMG_H_MIN, img_slot_h - 12); shrunk = True
             if not shrunk:
                 gap = GAP_MIN
                 break
 
-        # ── Gap üst sınırı (içerik çok azsa) ──
         if gap > GAP_MAX:
             gap = GAP_MAX
 
-        # ── Blok yüksekliği ve başlangıç Y ──
+        # ── Blok yüksekliği ve başlangıç Y (dikey ortalama) ──
         total_block_h = content_h + num_gaps * gap
         y_start = (CANVAS_HEIGHT - total_block_h) // 2
 
@@ -251,7 +238,6 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         # ══════════════════════════════════════════════════
         canvas = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), BG_COLOR_RGBA)
 
-        # Blur arka plan
         if src_img is not None:
             try:
                 bg = _fit_cover(src_img, CANVAS_WIDTH, CANVAS_HEIGHT)
@@ -260,11 +246,9 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             except Exception as e:
                 log(f"Blur arka plan: {e}", "WARNING")
 
-        # Karartma overlay
         overlay = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), (18, 25, 36, OVERLAY_ALPHA))
         canvas = Image.alpha_composite(canvas, overlay)
 
-        # ── Elemanları yukarıdan aşağıya çiz ──
         y = y_start + 2 * gap              # üst margin = 2 × gap
 
         for i, key in enumerate(elem_keys):
@@ -291,24 +275,21 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
                 iw, ih = fitted_img.size
                 ix = (CANVAS_WIDTH - iw) // 2
 
-                # Yuvarlatılmış köşe maskesi
                 mask = Image.new("L", (iw, ih), 0)
                 ImageDraw.Draw(mask).rounded_rectangle((0, 0, iw, ih), radius=22, fill=255)
 
-                # Çok katmanlı gölge
                 sp = 30
-                shadow = Image.new("RGBA", (iw + sp*2, ih + sp*2), (0,0,0,0))
+                shadow = Image.new("RGBA", (iw + sp * 2, ih + sp * 2), (0, 0, 0, 0))
                 sd = ImageDraw.Draw(shadow)
                 for k in range(8):
                     sd.rounded_rectangle(
-                        (8+k*2, 8+k*2, iw+8+k*2, ih+8+k*2),
-                        radius=26, fill=(0, 0, 0, max(0, 60 - k*6)))
+                        (8 + k * 2, 8 + k * 2, iw + 8 + k * 2, ih + 8 + k * 2),
+                        radius=26, fill=(0, 0, 0, max(0, 60 - k * 6)))
                 shadow = shadow.filter(ImageFilter.GaussianBlur(8))
                 canvas.alpha_composite(shadow, dest=(ix - sp, int(y) - 6))
 
                 canvas.paste(fitted_img.convert("RGBA"), (ix, int(y)), mask)
 
-                # İnce beyaz çerçeve
                 ImageDraw.Draw(canvas).rounded_rectangle(
                     (ix, int(y), ix + iw, int(y) + ih),
                     radius=22, outline=(255, 255, 255, 70), width=2)
@@ -323,7 +304,6 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
                     y += lh + BODY_LINE_GAP
                 y -= BODY_LINE_GAP
 
-            # Elemanlar arası 1 × gap (son elemandan sonra eklenmez)
             if i < len(elem_keys) - 1:
                 y += gap
 
@@ -334,7 +314,7 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         else:
             final.save(output_path, format="JPEG", quality=95, optimize=True, subsampling=0)
 
-        log(f"Kart olusturuldu: {output_path}")
+        log(f"Kart olusturuldu: {output_path}  |  gap={gap:.0f}  title={tfs}  body={bfs}  img_h={actual_img_h}")
         return output_path
 
     except Exception as e:
@@ -402,3 +382,4 @@ if st.button("🎨 Şablonu Oluştur", type="primary", use_container_width=True)
                     unsafe_allow_html=True)
             else:
                 st.error("Şablon oluşturulamadı. Konsoldaki log'a bak.")
+
