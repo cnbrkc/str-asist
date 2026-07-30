@@ -30,7 +30,7 @@ TITLE_STROKE_WIDTH = 2
 BODY_STROKE_WIDTH = 2
 
 # Overlay alpha — eski halin bir tık altında (daha şeffaf)
-OVERLAY_ALPHA = 100
+OVERLAY_ALPHA = 90
 
 FONT_BOLD_PATH = os.path.join(get_project_root(), "assets", "Roboto-Bold.ttf")
 FONT_REG_PATH = os.path.join(get_project_root(), "assets", "Roboto-Regular.ttf")
@@ -149,8 +149,8 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         logo_top_margin = 80      # logo ile canvas üst kenarı arasındaki sabit boşluk
 
         # Gap'ler dinamik — paket sığmıyorsa önce gap'leri daraltırız, fontu değil.
-        gap_max = 70              # elementler arası (logo↔başlık, başlık↔foto, foto↔altmetin) maksimum boşluk
-        gap_min = 28              # bu değerin altına gap'i düşürmeyiz; düşerse gap'i sabit tutup font küçültürüz
+        gap_max = 80              # elementler arası (logo↔başlık, başlık↔foto, foto↔altmetin) maksimum boşluk
+        gap_min = 40              # bu değerin altına gap'i düşürmeyiz; düşerse gap'i sabit tutup font küçültürüz
         gap_step = 4              # her daraltma adımında gap'i ne kadar küçültürüz
 
         line_gap_max = 12         # başlık satırları arası maksimum
