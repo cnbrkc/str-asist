@@ -139,7 +139,7 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
 
         TITLE_FONT_MAX = 64
         TITLE_FONT_MIN = 44
-        BODY_FONT_MAX  = 46
+        BODY_FONT_MAX  = 42
         BODY_FONT_MIN  = 30
         TITLE_LINE_GAP = 6
         BODY_LINE_GAP  = 5
