@@ -40,6 +40,21 @@ def _get_font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(path, size)
 
 
+# ── TÜRKÇE BÜYÜK HARF (YENİ) ──
+# Python'un .upper() metodu Türkçe bilmez: "i" -> "I" verir, oysa "İ" olmalı.
+# Bu fonksiyon Türkçe kurallı çevirir: i->İ, ı->I, diğerleri normal upper.
+def _tr_upper(s: str) -> str:
+    out = []
+    for ch in s:
+        if ch == 'i':
+            out.append('İ')
+        elif ch == 'ı':
+            out.append('I')
+        else:
+            out.append(ch.upper())
+    return ''.join(out)
+
+
 def _wrap_text(draw, text, font, max_width, stroke_width=0):
     words = text.split()
     lines, current = [], ""
@@ -85,7 +100,8 @@ def _prepare_text(post_text):
     lines = [ln.strip() for ln in (post_text or "").split("\n") if ln.strip()]
     title = lines[0] if lines else ""
     if title:
-        title = re.sub(r"\s+", " ", title).strip().upper()
+        # ★ .upper() yerine _tr_upper()  →  "MİLYON" artık doğru
+        title = _tr_upper(re.sub(r"\s+", " ", title).strip())
     body = "\n".join(lines[1:]) if len(lines) > 1 else ""
     return title, body
 
@@ -110,9 +126,6 @@ def _draw_centered_line(canvas, x_center, y_top, text, font, fill, stroke_width,
 #     3 × gap  → alt margin  (uzun alt metne bol nefes)
 #
 #  Formül:  g = (1920 − içerik) / 7
-#  • Fontlar makul başlar (64 / 46)
-#  • GAP_MIN = 30  → margin sigortası
-#  • GAP_MAX = 95  → içerik azken dev boşluk yok
 # ═══════════════════════════════════════════════════════════
 def create_social_card(post_text: str, image_path: str, output_path: str) -> str:
     try:
@@ -126,7 +139,7 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
 
         TITLE_FONT_MAX = 64
         TITLE_FONT_MIN = 44
-        BODY_FONT_MAX  = 42
+        BODY_FONT_MAX  = 46
         BODY_FONT_MIN  = 30
         TITLE_LINE_GAP = 6
         BODY_LINE_GAP  = 5
@@ -237,7 +250,6 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
             gap = GAP_MAX
 
         # ── Blok yüksekliği ve başlangıç Y ──
-        # Blok = üst(1g) + elemanlar + ara gapler + alt(3g) = content + 7g
         total_block_h = content_h + num_gaps * gap
         y_start = (CANVAS_HEIGHT - total_block_h) // 2
 
@@ -257,7 +269,7 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         overlay = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), (18, 25, 36, OVERLAY_ALPHA))
         canvas = Image.alpha_composite(canvas, overlay)
 
-        # ★ ÜST MARJİN = 1 × gap  (eskiden 2 idi)
+        # ★ ÜST MARJİN = 1 × gap
         y = y_start + TOP_MARGIN_GAP * gap
 
         for i, key in enumerate(elem_keys):
