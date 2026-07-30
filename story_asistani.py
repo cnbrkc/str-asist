@@ -146,7 +146,7 @@ def create_social_card(post_text: str, image_path: str, output_path: str) -> str
         side_padding = 60
         max_text_width = CANVAS_WIDTH - side_padding * 2
         logo_size = 210            # logo boyutu
-        logo_top_margin = 80      # logo ile canvas üst kenarı arasındaki sabit boşluk
+        logo_top_margin = 60      # logo ile canvas üst kenarı arasındaki sabit boşluk
 
         # Gap'ler dinamik — paket sığmıyorsa önce gap'leri daraltırız, fontu değil.
         gap_max = 80              # elementler arası (logo↔başlık, başlık↔foto, foto↔altmetin) maksimum boşluk
